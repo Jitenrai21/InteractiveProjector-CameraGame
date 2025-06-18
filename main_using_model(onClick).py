@@ -24,15 +24,15 @@ from screeninfo import get_monitors
 # Constants
 SCREEN_WIDTH = 1360
 SCREEN_HEIGHT = 768
-FPS = 60
+FPS = 90
 CONF_THRESHOLD = 0.5
 IOU_THRESHOLD = 0.7
 CLICK_COOLDOWN = 0.5
 MODEL_PATH = "best.onnx"
 CRACK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "boom1.png")
-BACKGROUND_IMAGE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "background.jpg")
+BACKGROUND_IMAGE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "background.jpeg")
 CALIBRATION_FILE = "calibration.json"
-CAMERA_INDEX = 1  # Configurable camera index
+CAMERA_INDEX = 0  # Configurable camera index
 BALLOON_FILES = ["balloon1.png", "balloon2.png", "balloon3.png", 'balloon4.png']
 POP_SOUND_PATH = "pop.wav"
 
@@ -113,13 +113,15 @@ except Exception as e:
     sys.exit(1)
 
 # Initialize camera
-cap = cv2.VideoCapture(CAMERA_INDEX)
+cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
 if not cap.isOpened():
     print("Error: Could not open camera")
     pygame.quit()
     sys.exit(1)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+cap.set(cv2.CAP_PROP_FPS, 30)  # Set to 30 FPS
 
 # Load or perform calibration
 calibration_points, offset_x, offset_y, debug_offset_x, debug_offset_y = load_calibration_points()
@@ -311,6 +313,15 @@ while running:
                     save_calibration_points(calibration_points, offset_x, offset_y, debug_offset_x, debug_offset_y)
                     transform_matrix = get_perspective_transform(calibration_points, offset_x, offset_y)
                     test_calibration_accuracy(transform_matrix, calibration_points)
+            elif game_over:
+                if event.key == pygame.K_r:
+                    score = 0
+                    start_time = pygame.time.get_ticks()
+                    game_over = False
+                    for b in balloons:
+                        b.reset()
+                elif event.key == pygame.K_ESCAPE:
+                    running = False
 
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:  # Left click
             if current_time - last_click_time >= CLICK_COOLDOWN:

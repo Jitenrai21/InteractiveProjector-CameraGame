@@ -62,14 +62,14 @@ except Exception as e:
     sys.exit(1)
 
 # Initialize camera
-cap = cv2.VideoCapture(1)
+cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 if not cap.isOpened():
     print("Error: Could not open camera")
     pygame.quit()
     sys.exit(1)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+cap.set(cv2.CAP_PROP_FPS, 30)
 # Load or perform calibration
 calibration_points, offset_x, offset_y, debug_offset_x, debug_offset_y = load_calibration_points()
 transform_matrix = None
