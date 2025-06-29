@@ -8,9 +8,13 @@ import os
 import random
 import time
 import logging
+from ultralytics import YOLO
+from screeninfo import get_monitors
 from modules.background import draw_text_with_bg
 from modules.calibration import *
 from modules.boom_animation import generate_boom_frames
+from modules.cloud import Cloud
+from modules.pop_score import ScorePopup
 
 # Suppress Ultralytics logging
 os.environ["YOLO_VERBOSE"] = "False"
@@ -18,9 +22,6 @@ logging.getLogger('ultralytics').setLevel(logging.CRITICAL)
 
 # Suppress OpenCV logging
 cv2.setLogLevel(0)
-
-from ultralytics import YOLO
-from screeninfo import get_monitors
 
 # Constants
 SCREEN_WIDTH = 1360
@@ -31,7 +32,7 @@ IOU_THRESHOLD = 0.7
 CLICK_COOLDOWN = 0.5
 MODEL_PATH = "best.onnx"
 CRACK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "boom1.png")
-BACKGROUND_IMAGE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "background.png")
+BACKGROUND_IMAGE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "background.jpg")
 CALIBRATION_FILE = "calibration.json"
 CAMERA_INDEX = 1  # Configurable camera index
 BALLOON_FILES = ["balloon1.png", "balloon2.png", "balloon3.png"]
@@ -106,6 +107,23 @@ except pygame.error as e:
     print(f"Error loading background image {BACKGROUND_IMAGE_PATH}: {e}")
     pygame.quit()
     sys.exit(1)
+
+# Load animated background elements
+cloud_image1 = pygame.image.load(os.path.join(base_dir, "assets", "cloud1.png")).convert_alpha()
+cloud_image2 = pygame.image.load(os.path.join(base_dir, "assets", "cloud2.png")).convert_alpha()
+cloud_images = [cloud_image1, cloud_image2]
+
+clouds = [Cloud(cloud_images, external_screen.width, external_screen.height) for _ in range(10)]
+
+sparkle_img = pygame.image.load(os.path.join(base_dir, "assets", "sparkle.png")).convert_alpha()
+sparkle_img = pygame.transform.scale(sparkle_img, (external_screen.width, external_screen.height))  # Adjust as needed
+
+def get_day_night_overlay(elapsed_time, total_time):
+    overlay = pygame.Surface((actual_width, actual_height), pygame.SRCALPHA)
+    progress = elapsed_time / total_time
+    alpha = int(min(180, 255 * progress))  # Max darkness
+    overlay.fill((0, 0, 64, alpha))  # Night bluish tint
+    return overlay
 
 # Initialize YOLO model with suppressed output
 try:
@@ -208,41 +226,6 @@ class CrackEffect:
                 win.blit(frame, (fx, fy))
             return True
         return False
-
-class ScorePopup:
-    def __init__(self, x, y, text="+1", color=(0, 255, 0), duration=0.8):
-        self.x = x + 60
-        self.y = y
-        self.text = text
-        self.color = color
-        self.start_time = time.time()
-        self.duration = duration
-        self.font = pygame.font.SysFont("Impact", 60)
-
-    def draw(self, surface):
-        elapsed = time.time() - self.start_time
-        if elapsed >= self.duration:
-            return False
-
-        # Float upward and fade out
-        offset_y = int(50 * (elapsed / self.duration))  # How far up it floats
-        alpha = max(0, 255 - int((elapsed / self.duration) * 255))
-
-        # main text and shadow
-        text_surface = self.font.render(self.text, True, self.color)
-        shadow_surface = self.font.render(self.text, True, (0, 0, 0))  # Black shadow
-
-        # fading alpha
-        text_surface.set_alpha(alpha)
-        shadow_surface.set_alpha(alpha)
-
-         # Slight shadow offset for fake bold or drop shadow
-        draw_x = self.x
-        draw_y = self.y - offset_y
-        surface.blit(shadow_surface, (draw_x + 2, draw_y + 2))  # Shadow below/right
-        surface.blit(text_surface, (draw_x, draw_y))            # Main text
-
-        return True
 
 # Main loop variables
 balloons = [Balloon() for _ in range(1)]
@@ -392,7 +375,32 @@ while running:
                     last_click_time = current_time
     # Render screen
     screen.blit(background_image, (0, 0))
+
+    # Clouds
+    for cloud in clouds:
+        cloud.update()
+        cloud.draw(screen)
+
     if not game_over:
+        overlay = get_day_night_overlay(elapsed_time, GAME_DURATION)
+        screen.blit(overlay, (0, 0))
+        
+        # Draw sparkles
+        if elapsed_time > GAME_DURATION * 0.6:
+            # Calculate how much time has passed since fade-in started
+            fade_duration = GAME_DURATION * 0.5  # Remaining time after 60%
+            fade_elapsed = elapsed_time - (GAME_DURATION * 0.5)
+
+            # Compute alpha (0 to 255) based on progress
+            fade_alpha = int(min(255, (fade_elapsed / fade_duration) * 255))
+
+            # Apply the alpha to a copy of the sparkle image
+            sparkle_fade = sparkle_img.copy()
+            sparkle_fade.set_alpha(fade_alpha)
+
+            # Blit with fading
+            screen.blit(sparkle_fade, (0, 0))
+
         for balloon in balloons:
             balloon.draw(screen)
         cracks = [c for c in cracks if c.draw(screen)]
@@ -400,7 +408,7 @@ while running:
         timer_text = FONT.render(f"Time Left: {time_left}s", True, (0,0,0))
         score_text = FONT.render(f"Score: {score}", True, (0,0,0))
         draw_text_with_bg(screen, timer_text, 20, 20)
-        draw_text_with_bg(screen, score_text, 20, 60)
+        draw_text_with_bg(screen, score_text, 20, 100)
     else:
         final_text = BIG_FONT.render("Game Over!", True, RED)
         final_score = FONT.render(f"Your Final Score: {score}", True, BLACK)
