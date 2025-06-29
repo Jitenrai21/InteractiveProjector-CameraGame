@@ -3,13 +3,14 @@ import pyautogui
 import cv2
 import numpy as np
 import sys
-import json
+import math
 import os
 import random
 import time
 import logging
 from modules.background import draw_text_with_bg
 from modules.calibration import *
+from modules.boom_animation import generate_boom_frames
 
 # Suppress Ultralytics logging
 os.environ["YOLO_VERBOSE"] = "False"
@@ -30,10 +31,10 @@ IOU_THRESHOLD = 0.7
 CLICK_COOLDOWN = 0.5
 MODEL_PATH = "best.onnx"
 CRACK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "boom1.png")
-BACKGROUND_IMAGE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "background.jpeg")
+BACKGROUND_IMAGE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "background.png")
 CALIBRATION_FILE = "calibration.json"
-CAMERA_INDEX = 0  # Configurable camera index
-BALLOON_FILES = ["balloon1.png", "balloon2.png", "balloon3.png", 'balloon4.png']
+CAMERA_INDEX = 1  # Configurable camera index
+BALLOON_FILES = ["balloon1.png", "balloon2.png", "balloon3.png"]
 POP_SOUND_PATH = "pop.wav"
 
 # Initialize Pygame
@@ -45,7 +46,7 @@ if len(monitors) < 2:
     sys.exit(1)
 external_screen = monitors[1]
 os.environ['SDL_VIDEO_WINDOW_POS'] = f"{external_screen.x},{external_screen.y}"
-screen = pygame.display.set_mode((external_screen.width, external_screen.height))
+screen = pygame.display.set_mode((external_screen.width, external_screen.height)) # 2040, 1152
 pygame.display.set_caption("Balloon Popping Game")
 clock = pygame.time.Clock()
 
@@ -75,8 +76,12 @@ if not BALLOON_IMAGES:
 
 # Load crack image
 try:
-    crack_img = pygame.image.load(CRACK_PATH).convert_alpha()
-    crack_img = pygame.transform.scale(crack_img, (260, 150))
+    # crack_img = pygame.image.load(CRACK_PATH).convert_alpha()
+    # crack_img = pygame.transform.scale(crack_img, (260, 150))
+    base_crack = pygame.image.load(CRACK_PATH).convert_alpha()
+    base_crack = pygame.transform.scale(base_crack, (200, 120))  # adjust if needed
+    boom_frames = generate_boom_frames(base_crack, num_frames=6)
+
 except pygame.error as e:
     print(f"Error loading boom1.png: {e}")
     sys.exit(1)
@@ -144,7 +149,6 @@ else:
         sys.exit()
 
 # Colors and fonts
-WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 RED = (200, 0, 0)
 FONT = pygame.font.SysFont("arial", 32)
@@ -169,6 +173,7 @@ class Balloon:
     def update(self):
         if not self.popped:
             self.y -= self.speed
+            self.x += math.sin(time.time() * 2 + self.y * 0.01) * 0.5
             if self.y + self.height < 0:
                 self.reset()
 
@@ -183,19 +188,61 @@ class Balloon:
         dy = pos[1] - cy
         return dx * dx + dy * dy <= self.radius * self.radius
 
-# Crack effect class
 class CrackEffect:
-    def __init__(self, x, y, duration=0.3):
+    def __init__(self, x, y, duration=0.4):
         self.x = x
         self.y = y
         self.start_time = time.time()
         self.duration = duration
+        self.frame_duration = duration / len(boom_frames)
 
     def draw(self, win):
-        if time.time() - self.start_time < self.duration:
-            win.blit(crack_img, (self.x, self.y))
+        elapsed = time.time() - self.start_time
+        if elapsed < self.duration:
+            frame_index = int(elapsed / self.frame_duration)
+            if frame_index < len(boom_frames):
+                frame = boom_frames[frame_index]
+                # Adjust position to keep effect centered
+                fx = self.x - frame.get_width() // 2
+                fy = self.y - frame.get_height() // 2
+                win.blit(frame, (fx, fy))
             return True
         return False
+
+class ScorePopup:
+    def __init__(self, x, y, text="+1", color=(0, 255, 0), duration=0.8):
+        self.x = x + 60
+        self.y = y
+        self.text = text
+        self.color = color
+        self.start_time = time.time()
+        self.duration = duration
+        self.font = pygame.font.SysFont("Impact", 60)
+
+    def draw(self, surface):
+        elapsed = time.time() - self.start_time
+        if elapsed >= self.duration:
+            return False
+
+        # Float upward and fade out
+        offset_y = int(50 * (elapsed / self.duration))  # How far up it floats
+        alpha = max(0, 255 - int((elapsed / self.duration) * 255))
+
+        # main text and shadow
+        text_surface = self.font.render(self.text, True, self.color)
+        shadow_surface = self.font.render(self.text, True, (0, 0, 0))  # Black shadow
+
+        # fading alpha
+        text_surface.set_alpha(alpha)
+        shadow_surface.set_alpha(alpha)
+
+         # Slight shadow offset for fake bold or drop shadow
+        draw_x = self.x
+        draw_y = self.y - offset_y
+        surface.blit(shadow_surface, (draw_x + 2, draw_y + 2))  # Shadow below/right
+        surface.blit(text_surface, (draw_x, draw_y))            # Main text
+
+        return True
 
 # Main loop variables
 balloons = [Balloon() for _ in range(1)]
@@ -208,6 +255,7 @@ score = 0
 GAME_DURATION = 120
 start_time = pygame.time.get_ticks()
 game_over = False
+score_popups = []
 
 # Compute inverse transform for manual clicks
 inv_transform_matrix = np.linalg.inv(transform_matrix)
@@ -256,11 +304,12 @@ while running:
                                 balloon.popped = True
                                 if pop_sound:
                                     pop_sound.play()
-                                crack_x = int(screen_x - crack_img.get_width() / 2)
-                                crack_y = int(screen_y - crack_img.get_height() / 2)
+                                crack_x = int(screen_x - base_crack.get_width() / 2)
+                                crack_y = int(screen_y - base_crack.get_height() / 2)
                                 cracks.append(CrackEffect(crack_x, crack_y))
                                 balloons.remove(balloon)
                                 score += 1
+                                score_popups.append(ScorePopup(screen_x, screen_y))
                                 last_click_time = current_time
                                 break
         # Add new balloons if needed
@@ -330,9 +379,7 @@ while running:
                 warped_point = cv2.perspectiveTransform(point, inv_transform_matrix)[0][0]
                 cx, cy = warped_point
                 if 0 <= cx <= external_screen.width and 0 <= cy <= external_screen.height:
-                    crack_x = int(mx - crack_img.get_width() / 2)
-                    crack_y = int(my - crack_img.get_height() / 2)
-                    cracks.append(CrackEffect(crack_x, crack_y))
+                    cracks.append(CrackEffect(mx, my))
                     for balloon in balloons[:]:
                         if balloon.is_clicked((mx, my)):
                             balloon.popped = True
@@ -340,6 +387,7 @@ while running:
                                 pop_sound.play()
                             balloons.remove(balloon)
                             score += 1
+                            score_popups.append(ScorePopup(mx, my))
                             break
                     last_click_time = current_time
     # Render screen
@@ -348,6 +396,7 @@ while running:
         for balloon in balloons:
             balloon.draw(screen)
         cracks = [c for c in cracks if c.draw(screen)]
+        score_popups = [s for s in score_popups if s.draw(screen)]
         timer_text = FONT.render(f"Time Left: {time_left}s", True, (0,0,0))
         score_text = FONT.render(f"Score: {score}", True, (0,0,0))
         draw_text_with_bg(screen, timer_text, 20, 20)
