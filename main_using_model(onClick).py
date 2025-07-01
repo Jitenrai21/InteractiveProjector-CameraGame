@@ -36,7 +36,7 @@ BACKGROUND_IMAGE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 CALIBRATION_FILE = "calibration.json"
 CAMERA_INDEX = 1  # Configurable camera index
 BALLOON_FILES = ["balloon1.png", "balloon2.png", "balloon3.png"]
-POP_SOUND_PATH = "pop.wav"
+POP_SOUND_PATH = "balloon-pop.mp3"
 
 # Initialize Pygame
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
@@ -65,7 +65,7 @@ for file in BALLOON_FILES:
         continue
     try:
         img = pygame.image.load(path).convert_alpha()
-        img = pygame.transform.scale(img, (520, 560))
+        img = pygame.transform.scale(img, (420, 460))
         BALLOON_IMAGES.append(img)
     except pygame.error as e:
         print(f"Warning: Failed to load {path}: {e}. Skipping.")
@@ -170,8 +170,10 @@ else:
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 RED = (200, 0, 0)
-FONT = pygame.font.SysFont("arial", 32)
-BIG_FONT = pygame.font.SysFont("arial", 48)
+YELLOW = (255, 255, 0)
+GREEN = (0, 255, 0)
+FONT = pygame.font.SysFont("Impact", 32)
+BIG_FONT = pygame.font.SysFont("Impact", 48)
 
 # Balloon class
 class Balloon:
@@ -236,7 +238,7 @@ running = True
 show_debug_overlay = False
 font = pygame.font.SysFont(None, 36)
 score = 0
-GAME_DURATION = 20
+GAME_DURATION = 10
 start_time = pygame.time.get_ticks()
 game_over = False
 score_popups = []
@@ -505,50 +507,71 @@ while running:
         score_text = FONT.render(f"Score: {score}", True, (0,0,0))
         draw_text_with_bg(screen, timer_text, 20, 20)
         draw_text_with_bg(screen, score_text, 20, 100)
+
     # Game over handling
     else:
         if game_over_start_time is None:
             game_over_start_time = pygame.time.get_ticks()
 
-        elapsed_drop = (pygame.time.get_ticks() - game_over_start_time) / 1000
-        
-        if elapsed_time >= GAME_DURATION and not game_over:
-            game_over = True
-            game_over_start_time = pygame.time.get_ticks()
-        # Translucent background
+        # Draw background consistent with start screen
         screen.blit(background_image, (0, 0))
+        
+        # Draw clouds
         for cloud in clouds:
+            cloud.update()
             cloud.draw(screen)
-        dim_overlay.set_alpha(fade_alpha)
-        screen.blit(dim_overlay, (0, 0))
-        if fade_alpha < 180:
-            fade_alpha += 5
 
-        # Slow-motion balloons
-        for balloon in balloons:
-            balloon.update(slow_factor=0.3)
+        # Draw floating balloons (same as start screen)
+        for balloon in start_balloons:
+            balloon.update()  # Use normal update, not slow-motion
             balloon.draw(screen)
 
+        # Apply semi-transparent overlay (same as start screen)
+        overlay = pygame.Surface((external_screen.width, external_screen.height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))  # Match start screen's overlay
+        screen.blit(overlay, (0, 0))
+
         # Animate "Game Over" drop
-        if game_over_start_time is None:
-            game_over_start_time = pygame.time.get_ticks()
-        # Bounce animation timing
-        drop_duration = 2  # seconds
         elapsed_drop = (pygame.time.get_ticks() - game_over_start_time) / 1000
+        drop_duration = 2  # seconds
         t = min(1, elapsed_drop / drop_duration)
         eased_y = int(ease_out_bounce(t) * (game_over_target_y + 80))
 
-        draw_glow_text(screen, "Game Over!", BIG_FONT,
-                    external_screen.width // 2 - BIG_FONT.size("Game Over!")[0] // 2,
-                    eased_y, RED)
+        # Define fonts for hierarchy
+        title_font = pygame.font.SysFont("Impact", 80)  # Larger for "Game Over!"
+        score_font = pygame.font.SysFont("Impact", 60)  # Slightly smaller for score
+        message_font = pygame.font.SysFont("Impact", 48)  # Smaller for messages
 
-        if t >= 1:
-            draw_glow_text(screen, f"Final Score: {score}", FONT,
-                        external_screen.width // 2 - FONT.size(f"Final Score: {score}")[0] // 2,
-                        eased_y + 80, WHITE)
-            draw_glow_text(screen, "Press R to restart", FONT,
-                        external_screen.width // 2 - FONT.size("Press R to restart")[0] // 2,
-                        eased_y + 130, WHITE)
+        # Calculate total text block height
+        text_lines = [
+            ("Oops!!! The time is up.", message_font, YELLOW),
+            ("Game Over!", title_font, RED),
+            (f"Your Final Score: {score}", score_font, WHITE),
+            ("Press R to restart", message_font, GREEN),
+            ("TRY AGAIN!!!", message_font, WHITE)
+        ]
+        line_spacing = 50  # Consistent spacing between lines
+        total_height = sum(font.size(text)[1] for text, font, _ in text_lines) + line_spacing * (len(text_lines) - 1)
+        start_y = external_screen.height // 2 - total_height // 2 + eased_y - game_over_target_y  # Center the block around eased_y
+
+        # Optional: Draw semi-transparent background box
+        max_width = max(font.size(text)[0] for text, font, _ in text_lines)
+        box_padding = 20
+        box_rect = pygame.Rect(
+            external_screen.width // 2 - max_width // 2 - box_padding,
+            external_screen.height // 2 - total_height // 2 - box_padding,
+            max_width + 2 * box_padding,
+            total_height + 2 * box_padding
+        )
+        pygame.draw.rect(screen, (0, 0, 0, 20), box_rect, border_radius=10)
+
+        # Draw text lines
+        current_y = start_y
+        for text, font, color in text_lines:
+            draw_glow_text(screen, text, font,
+                        external_screen.width // 2 - font.size(text)[0] // 2,
+                        current_y - 80, color)
+            current_y += font.size(text)[1] + line_spacing
 
     pygame.display.flip()
     
