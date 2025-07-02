@@ -65,7 +65,7 @@ for file in BALLOON_FILES:
         continue
     try:
         img = pygame.image.load(path).convert_alpha()
-        img = pygame.transform.scale(img, (420, 460))
+        img = pygame.transform.scale(img, (420, 480))
         BALLOON_IMAGES.append(img)
     except pygame.error as e:
         print(f"Warning: Failed to load {path}: {e}. Skipping.")
@@ -86,6 +86,12 @@ try:
 except pygame.error as e:
     print(f"Error loading boom1.png: {e}")
     sys.exit(1)
+
+miss_image = pygame.image.load("assets/miss.png").convert_alpha()
+miss_image = pygame.transform.scale(miss_image, (150, 100))
+miss_frames = generate_boom_frames(miss_image, num_frames=6)
+
+miss_sound = pygame.mixer.Sound("assets/miss.mp3")
 
 # Load pop sound
 def load_sound(filename):
@@ -175,6 +181,11 @@ GREEN = (0, 255, 0)
 FONT = pygame.font.SysFont("Impact", 32)
 BIG_FONT = pygame.font.SysFont("Impact", 48)
 
+# Balloon movement variables
+ZONE_COUNT = 5
+zone_width = actual_width // ZONE_COUNT
+occupied_zones = set()
+
 # Balloon class
 class Balloon:
     def __init__(self):
@@ -183,18 +194,52 @@ class Balloon:
         self.height = self.image.get_height()
         self.radius = min(self.width, self.height) // 2
         self.popped = False
+        self.movement_type = random.choice(['zigzag', 'sway', 'spiral'])
+        self.wind_offset = 0  # used for wind gusts
+        self.birth_time = time.time()
         self.reset()
 
     def reset(self):
-        self.x = random.randint(0, actual_width - self.width)
-        self.y = actual_height + random.randint(0, 300)
-        self.speed = random.uniform(18.0, 19.0)
+        global occupied_zones
+        if len(occupied_zones) >= ZONE_COUNT:
+            occupied_zones.clear()
+        
+        zone = random.choice([i for i in range(ZONE_COUNT) if i not in occupied_zones])
+        max_x_offset = max(0, zone_width - self.width)
+        self.x = zone * zone_width + random.randint(0, max_x_offset)
+        occupied_zones.add(zone)
+
+        # self.y = actual_height + random.randint(0, 50)
+        self.y = actual_height - 10  # Almost just off-screen
+        self.speed = random.uniform(28.0, 30.0)  # higher speed
         self.popped = False
+        self.style = random.choice(['zigzag', 'spiral', 'sway'])  # re-randomize style
+        self.wind_amplitude = random.uniform(0.8, 2.0)
 
     def update(self, slow_factor=1.0):
         if not self.popped:
+            # Vertical movement
             self.y -= self.speed * slow_factor
-            self.x += math.sin(time.time() * 2 + self.y * 0.01) * 0.5
+            
+            # Horizontal personality movement
+            t = time.time() - self.birth_time
+
+            if self.movement_type == 'zigzag':
+                self.x += math.sin(t * 5) * 8  # fast side-to-side
+            elif self.movement_type == 'sway':
+                self.x += math.sin(self.y * 0.01) * 6  # smooth slow sway
+            elif self.movement_type == 'spiral':
+                self.x += math.sin(t * 3) * (self.y * 0.008)  # spiral outward
+
+            # Occasional wind gust
+            if random.random() < 0.002:  # ~0.2% chance per frame
+                self.wind_offset = random.uniform(-10, 10)
+            else:
+                self.wind_offset *= 0.9  # fade out wind
+
+            self.x += self.wind_offset
+
+            # Reset if out of screen
             if self.y + self.height < 0:
                 self.reset()
 
@@ -210,7 +255,7 @@ class Balloon:
         return dx * dx + dy * dy <= self.radius * self.radius
 
 class CrackEffect:
-    def __init__(self, x, y, duration=0.4):
+    def __init__(self, x, y, duration=1):
         self.x = x
         self.y = y
         self.start_time = time.time()
@@ -230,15 +275,37 @@ class CrackEffect:
             return True
         return False
 
+class MissEffect:
+    def __init__(self, x, y, duration=1):
+        self.x = x
+        self.y = y
+        self.start_time = time.time()
+        self.duration = duration
+        self.frame_duration = duration / len(miss_frames)
+
+    def draw(self, win):
+        elapsed = time.time() - self.start_time
+        if elapsed < self.duration:
+            frame_index = int(elapsed / self.frame_duration)
+            if frame_index < len(miss_frames):
+                frame = miss_frames[frame_index]
+                # Adjust position to keep effect centered
+                fx = self.x - frame.get_width() // 2
+                fy = self.y - frame.get_height() // 2
+                win.blit(frame, (fx, fy))
+            return True
+        return False
+
 # Main loop variables
 balloons = [Balloon() for _ in range(1)]
 cracks = []
+misses = []
 last_click_time = 0
 running = True
 show_debug_overlay = False
 font = pygame.font.SysFont(None, 36)
 score = 0
-GAME_DURATION = 10
+GAME_DURATION = 120
 start_time = pygame.time.get_ticks()
 game_over = False
 score_popups = []
@@ -274,7 +341,7 @@ fade_duration = 1.0  # seconds for the fade out effect
 fade_alpha = 100  # Fully opaque to begin with
 game_started = False
 
-start_balloons = [Balloon() for _ in range(5)]
+start_balloons = [Balloon() for _ in range(4)]
 
 # Game Over screen
 fade_overlay = pygame.Surface((external_screen.width, external_screen.height))
@@ -373,7 +440,8 @@ while running:
                         # Move the mouse and click
                         pyautogui.moveTo(screen_x, screen_y)
                         pyautogui.click(button='left')
-                            
+                        
+                        clicked = False
                         for balloon in balloons[:]:
                             if balloon.is_clicked((screen_x, screen_y)):
                                 balloon.popped = True
@@ -386,10 +454,14 @@ while running:
                                 score += 1
                                 score_popups.append(ScorePopup(screen_x, screen_y))
                                 last_click_time = current_time
+                                clicked = True
                                 break
+                        if not clicked:
+                            misses.append(MissEffect(screen_x, screen_y))
+                            miss_sound.play()
 
         # Add new balloons if needed
-        if len(balloons) < 3:
+        if len(balloons) == 0:
             balloons.append(Balloon())
     
     # Update and draw balloons
@@ -460,17 +532,22 @@ while running:
                 warped_point = cv2.perspectiveTransform(point, inv_transform_matrix)[0][0]
                 cx, cy = warped_point
                 if 0 <= cx <= external_screen.width and 0 <= cy <= external_screen.height:
-                    cracks.append(CrackEffect(mx, my))
+                    clicked = False
                     for balloon in balloons[:]:
                         if balloon.is_clicked((mx, my)):
                             balloon.popped = True
                             if pop_sound:
                                 pop_sound.play()
+                            cracks.append(CrackEffect(mx, my))
                             balloons.remove(balloon)
                             score += 1
                             score_popups.append(ScorePopup(mx, my))
+                            clicked = True
                             break
                     last_click_time = current_time
+                if not clicked:
+                    misses.append(MissEffect(mx, my))
+                    miss_sound.play()
     # Render screen
     screen.blit(background_image, (0, 0))
 
@@ -503,6 +580,7 @@ while running:
             balloon.draw(screen)
         cracks = [c for c in cracks if c.draw(screen)]
         score_popups = [s for s in score_popups if s.draw(screen)]
+        misses = [m for m in misses if m.draw(screen)]
         timer_text = FONT.render(f"Time Left: {time_left}s", True, (0,0,0))
         score_text = FONT.render(f"Score: {score}", True, (0,0,0))
         draw_text_with_bg(screen, timer_text, 20, 20)
