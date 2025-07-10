@@ -34,7 +34,7 @@ MODEL_PATH = "best.onnx"
 CRACK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "boom1.png")
 BACKGROUND_IMAGE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "background.jpg")
 CALIBRATION_FILE = "calibration.json"
-CAMERA_INDEX = 1  # Configurable camera index
+CAMERA_INDEX = 0  # Configurable camera index
 BALLOON_FILES = ["balloon1.png", "balloon2.png", "balloon3.png"]
 POP_SOUND_PATH = "balloon-pop.mp3"
 

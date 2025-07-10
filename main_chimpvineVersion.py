@@ -15,6 +15,9 @@ from modules.calibration import *
 from modules.boom_animation import generate_boom_frames
 # from modules.cloud import Cloud
 from modules.pop_score import ScorePopup
+import threading
+import queue
+from modules.camera_capture_thread import CameraCaptureThread
 
 # Suppress Ultralytics logging
 os.environ["YOLO_VERBOSE"] = "False"
@@ -26,7 +29,7 @@ cv2.setLogLevel(0)
 # Constants
 SCREEN_WIDTH = 1360
 SCREEN_HEIGHT = 768
-FPS = 90
+FPS = 30
 CONF_THRESHOLD = 0.5
 IOU_THRESHOLD = 0.7
 CLICK_COOLDOWN = 0.5
@@ -34,7 +37,7 @@ MODEL_PATH = "best.onnx"
 CRACK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "boom1.png")
 SAND_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "chimp", "sand_Chimp.png")
 CALIBRATION_FILE = "calibration.json"
-CAMERA_INDEX = 1  # Configurable camera index
+CAMERA_INDEX = 0  # Configurable camera index
 BALLOON_FILES = ["Balloon1.png", "Balloon2.png", "Balloon3.png", "Balloon4.png"]
 POP_SOUND_PATH = "balloon-pop.mp3"
 
@@ -50,6 +53,14 @@ os.environ['SDL_VIDEO_WINDOW_POS'] = f"{external_screen.x},{external_screen.y}"
 screen = pygame.display.set_mode((external_screen.width, external_screen.height)) 
 # print(f'{external_screen.width}, {external_screen.height}')
 pygame.display.set_caption("Balloon Popping Game")
+
+# Frame queue (Thread-Safe)
+frame_queue = queue.Queue(maxsize=1)  # Only store one frame at a time to avoid memory overload
+
+# Start camera capture thread
+camera_thread = CameraCaptureThread(CAMERA_INDEX, frame_queue)
+camera_thread.start()
+
 clock = pygame.time.Clock()
 
 actual_width, actual_height = screen.get_size()
@@ -66,7 +77,7 @@ for file in BALLOON_FILES:
         continue
     try:
         img = pygame.image.load(path).convert_alpha()
-        img = pygame.transform.scale(img, (300, 320))
+        img = pygame.transform.scale(img, (400, 420))
         BALLOON_IMAGES.append(img)
     except pygame.error as e:
         print(f"Warning: Failed to load {path}: {e}. Skipping.")
@@ -141,10 +152,10 @@ if not cap.isOpened():
     print("Error: Could not open camera")
     pygame.quit()
     sys.exit(1)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
 
-cap.set(cv2.CAP_PROP_FPS, 30)  # Set to 30 FPS
+cap.set(cv2.CAP_PROP_FPS, 60)  # Set to 30 FPS
 
 # Load or perform calibration
 calibration_points, offset_x, offset_y, debug_offset_x, debug_offset_y = load_calibration_points()
@@ -611,6 +622,20 @@ while running:
                 if not clicked:
                     misses.append(MissEffect(mx, my))
                     miss_sound.play()
+    
+    # Get the latest frame from the queue (non-blocking)
+    frame = None
+    if not frame_queue.empty():
+        frame = frame_queue.get()
+
+    if frame is not None:
+        # Convert the frame to RGB for Pygame
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame_surface = pygame.surfarray.make_surface(frame_rgb)
+
+        # Draw the frame onto the Pygame screen
+        screen.blit(frame_surface, (0, 0))
+
     # Render screen
     screen.fill(SKY_BLUE)
 
@@ -735,5 +760,7 @@ while running:
 # Cleanup
 cap.release()
 cv2.destroyAllWindows()
+camera_thread.stop()
+camera_thread.join()
 pygame.quit()
 sys.exit()
