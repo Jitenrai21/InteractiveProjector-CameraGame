@@ -7,11 +7,8 @@ import math
 import os
 import random
 import time
-import logging
-from ultralytics import YOLO
 from screeninfo import get_monitors
 from modules.background import draw_text_with_bg
-from modules.calibration import *
 from modules.boom_animation import generate_boom_frames
 # from modules.cloud import Cloud
 from modules.pop_score import ScorePopup
@@ -19,25 +16,8 @@ import threading
 import queue
 from modules.camera_capture_thread import CameraCaptureThread
 
-# Suppress Ultralytics logging
-os.environ["YOLO_VERBOSE"] = "False"
-logging.getLogger('ultralytics').setLevel(logging.CRITICAL)
-
-# Suppress OpenCV logging
-cv2.setLogLevel(0)
-
-# Constants
-SCREEN_WIDTH = 1360
-SCREEN_HEIGHT = 768
-FPS = 30
-CONF_THRESHOLD = 0.5
-IOU_THRESHOLD = 0.7
-CLICK_COOLDOWN = 0.5
-MODEL_PATH = "best.onnx"
 CRACK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "boom1.png")
 SAND_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "chimp", "sand_Chimp.png")
-CALIBRATION_FILE = "calibration.json"
-CAMERA_INDEX = 0  # Configurable camera index
 BALLOON_FILES = ["Balloon1.png", "Balloon2.png", "Balloon3.png", "Balloon4.png"]
 POP_SOUND_PATH = "balloon-pop.mp3"
 
@@ -45,22 +25,10 @@ POP_SOUND_PATH = "balloon-pop.mp3"
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
 pygame.init()
 monitors = get_monitors()
-if len(monitors) < 2:
-    print("Error: External monitor (projector) not detected")
-    sys.exit(1)
-external_screen = monitors[1]
-os.environ['SDL_VIDEO_WINDOW_POS'] = f"{external_screen.x},{external_screen.y}"
-screen = pygame.display.set_mode((external_screen.width, external_screen.height)) 
-# print(f'{external_screen.width}, {external_screen.height}')
+main_screen = monitors[0]
+screen = pygame.display.set_mode((main_screen.width, main_screen.height)) # 2040, 1152
 pygame.display.set_caption("Balloon Popping Game")
-
-# Start camera capture thread
-camera_thread = CameraCaptureThread(CAMERA_INDEX)
-camera_thread.start()
-frame_queue = camera_thread.frame_queue  # Use queue from thread
-
 clock = pygame.time.Clock()
-actual_width, actual_height = screen.get_size()
 
 # Load assets
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__)))
@@ -74,7 +42,7 @@ for file in BALLOON_FILES:
         continue
     try:
         img = pygame.image.load(path).convert_alpha()
-        img = pygame.transform.scale(img, (400, 420))
+        img = pygame.transform.scale(img, (200, 200))
         BALLOON_IMAGES.append(img)
     except pygame.error as e:
         print(f"Warning: Failed to load {path}: {e}. Skipping.")
@@ -122,7 +90,7 @@ def load_sound(filename):
 pop_sound = load_sound(POP_SOUND_PATH)
 
 def get_day_night_overlay(elapsed_time, total_time):
-    overlay = pygame.Surface((actual_width, actual_height), pygame.SRCALPHA)
+    overlay = pygame.Surface((main_screen.width, main_screen.height), pygame.SRCALPHA)
     progress = elapsed_time / total_time
     alpha = int(min(180, 255 * progress))  # Max darkness
     overlay.fill((0, 0, 64, alpha))  # Night bluish tint
@@ -131,48 +99,7 @@ def get_day_night_overlay(elapsed_time, total_time):
 # For Backgorund
 SKY_BLUE = (135, 206, 235)
 sand_img = pygame.image.load(SAND_PATH).convert_alpha()
-sand_img = pygame.transform.scale(sand_img, (external_screen.width, 435))  # adjust height as needed # 554 with chimpu
-
-# Initialize YOLO model with suppressed output
-try:
-    original_stdout = sys.stdout
-    sys.stdout = open(os.devnull, 'w')
-    model = YOLO(MODEL_PATH, task="detect", verbose=False)
-    sys.stdout = original_stdout
-except Exception as e:
-    print(f"Error loading YOLO model: {e}")
-    sys.exit(1)
-
-# Initialize camera
-cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
-if not cap.isOpened():
-    print("Error: Could not open camera")
-    pygame.quit()
-    sys.exit(1)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
-
-cap.set(cv2.CAP_PROP_FPS, 60)  # Set to 30 FPS
-
-# Load or perform calibration
-calibration_points, offset_x, offset_y, debug_offset_x, debug_offset_y = load_calibration_points()
-transform_matrix = None
-if calibration_points and len(calibration_points) == 4:
-    print(f"Loading existing calibration with homography offset ({offset_x}, {offset_y}) and debug offset ({debug_offset_x}, {debug_offset_y})...")
-    transform_matrix = get_perspective_transform(calibration_points, 0, 0)
-else:
-    print("Performing camera calibration...")
-    calibration_points = get_calibration_points(cap)
-    offset_x, offset_y = 0, 0  # Set homography offset to 0,0
-    debug_offset_x, debug_offset_y = 0, 0  
-    if calibration_points and len(calibration_points) == 4:
-        save_calibration_points(calibration_points, offset_x, offset_y, debug_offset_x, debug_offset_y)
-        transform_matrix = get_perspective_transform(calibration_points, 0, 0)
-    else:
-        print("Error: Calibration failed")
-        cap.release()
-        pygame.quit()
-        sys.exit()
+sand_img = pygame.transform.scale(sand_img, (main_screen.width, 265))  # adjust height as needed # 554 with chimpu
 
 # Colors and fonts
 WHITE = (255, 255, 255)
@@ -185,7 +112,7 @@ BIG_FONT = pygame.font.SysFont("Impact", 48)
 
 # Balloon movement variables
 ZONE_COUNT = 5
-zone_width = actual_width // ZONE_COUNT
+zone_width = main_screen.width // ZONE_COUNT
 occupied_zones = set()
 
 # Balloon class
@@ -211,11 +138,11 @@ class Balloon:
         self.x = zone * zone_width + random.randint(0, max_x_offset)
         occupied_zones.add(zone)
 
-        self.y = actual_height + random.randint(-20, 50)
-        self.speed = random.uniform(28.0, 30.0)  # higher speed
+        self.y = main_screen.height + random.randint(-20, 50)
+        self.speed = random.uniform(0.5, 1)  # higher speed
         self.popped = False
         self.style = random.choice(['zigzag', 'spiral', 'sway'])  # re-randomize style
-        self.wind_amplitude = random.uniform(0.8, 2.0)
+        self.wind_amplitude = random.uniform(0.2, 0.5)
 
     def update(self, slow_factor=1.0):
         if not self.popped:
@@ -226,11 +153,11 @@ class Balloon:
             t = time.time() - self.birth_time
 
             if self.movement_type == 'zigzag':
-                self.x += math.sin(t * 5) * 8  # fast side-to-side
+                self.x += math.sin(t * 5) * 2  # fast side-to-side
             elif self.movement_type == 'sway':
-                self.x += math.sin(self.y * 0.01) * 6  # smooth slow sway
+                self.x += math.sin(self.y * 0.01) * 2  # smooth slow sway
             elif self.movement_type == 'spiral':
-                self.x += math.sin(t * 3) * (self.y * 0.008)  # spiral outward
+                self.x += math.sin(t * 3) * (self.y * 0.002)  # spiral outward
 
             # Occasional wind gust
             if random.random() < 0.05:  # ~0.2% chance per frame
@@ -267,15 +194,15 @@ class Cloud:
         self.opacity = random.randint(100, 220)
         self.image.set_alpha(self.opacity)
 
-        self.x = random.randint(-200, external_screen.width)
-        self.y = random.randint(20, external_screen.height // 2)
-        self.speed = random.uniform(9, 10)
+        self.x = random.randint(-200, main_screen.width)
+        self.y = random.randint(20, main_screen.height // 2)
+        self.speed = random.uniform(0.5, 0.7)
 
     def update(self):
         self.x += self.speed
-        if self.x > external_screen.width:
+        if self.x > main_screen.width:
             self.x = -self.image.get_width()
-            self.y = random.randint(20, external_screen.height // 3)
+            self.y = random.randint(20, main_screen.height // 3)
             self.speed = random.uniform(5, 9)
             self.opacity = random.randint(180, 255)  # re-randomize opacity
             self.image.set_alpha(self.opacity)
@@ -372,14 +299,11 @@ running = True
 show_debug_overlay = False
 font = pygame.font.SysFont(None, 36)
 score = 0
-GAME_DURATION = 120
+GAME_DURATION = 20
 start_time = pygame.time.get_ticks()
 game_over = False
 score_popups = []
 last_frame = None
-
-# Compute inverse transform for manual clicks
-inv_transform_matrix = np.linalg.inv(transform_matrix)
 
 #start screen
 def draw_start_screen(surface, alpha=255):
@@ -395,15 +319,15 @@ def draw_start_screen(surface, alpha=255):
         balloon.update()
         balloon.draw(surface)
 
-    surface.blit(sand_img, (0, external_screen.height - sand_img.get_height()))
+    surface.blit(sand_img, (0, main_screen.height - sand_img.get_height()))
 
-    overlay = pygame.Surface((external_screen.width, external_screen.height), pygame.SRCALPHA)
+    overlay = pygame.Surface((main_screen.width, main_screen.height), pygame.SRCALPHA)
     overlay.fill((0, 0, 0, 180))  # semi-transparent dark
     surface.blit(overlay, (0, 0))
 
     font = pygame.font.SysFont("Impact", 72)
     text = font.render("Tap to Start", True, (255, 255, 255))
-    text_rect = text.get_rect(center=(external_screen.width//2, external_screen.height//2))
+    text_rect = text.get_rect(center=(main_screen.width//2, main_screen.height//2))
     surface.blit(text, text_rect)
 
 start_screen_active = True
@@ -415,15 +339,15 @@ game_started = False
 start_balloons = [Balloon() for _ in range(4)]
 
 # Game Over screen
-fade_overlay = pygame.Surface((external_screen.width, external_screen.height))
+fade_overlay = pygame.Surface((main_screen.width, main_screen.height))
 fade_overlay.fill((0, 0, 0, 180))
 fade_alpha = 0
 game_over_y = -100  # Start off-screen
-game_over_target_y = SCREEN_HEIGHT // 2 - 80
+game_over_target_y = main_screen.height // 2 - 80
 
 # Fade overlay
-dim_overlay = pygame.Surface((external_screen.width, external_screen.height))
-dim_overlay.fill((0, 0, 0, 180))
+dim_overlay = pygame.Surface((main_screen.width, main_screen.height))
+dim_overlay.fill((0, 0, 0))
 dim_overlay.set_alpha(fade_alpha)  # Range from 0 to ~180
 screen.blit(dim_overlay, (0, 0))       # Apply fade
 
@@ -454,29 +378,10 @@ def draw_glow_text(surface, text, font, x, y, color):
 
 # Main loop
 while running:
-    clock.tick(FPS)
-
-    # Get latest frame from queue
-    if not frame_queue.empty():
-        last_frame = frame_queue.get_nowait()
-    
-    if last_frame is not None:
-        # Apply perspective transform
-        warped_frame = cv2.warpPerspective(last_frame, transform_matrix, (external_screen.width, external_screen.height))
-        results = model.predict(warped_frame, imgsz=640, conf=CONF_THRESHOLD, iou=IOU_THRESHOLD, device="cpu", verbose=False)
-        
-        # Convert frame for Pygame
-        frame_rgb = cv2.cvtColor(last_frame, cv2.COLOR_BGR2RGB)
-        frame_surface = pygame.surfarray.make_surface(frame_rgb)
-        screen.blit(frame_surface, (0, 0))
-    else:
-        # If no new frame, continue rendering the last frame or clear screen
-        screen.fill(SKY_BLUE)
-
     # Check for tap to begin game
     if start_screen_active:
         draw_start_screen(screen)
-        screen.blit(logo_img, (external_screen.width - 160, 40))
+        screen.blit(logo_img, (main_screen.width - 160, 40))
         pygame.display.flip()
 
         # Process events JUST to check for tap
@@ -487,58 +392,9 @@ while running:
                 start_screen_active = False
                 game_started = True
                 start_time = pygame.time.get_ticks()
-        for result in results:
-            if result.boxes:
-                start_screen_active = False
-                game_started = True
-                start_time = pygame.time.get_ticks()
-                break  # Exit loop once started
         continue
-
+    
     if not game_over:
-        # Process detections
-        current_time = time.time()
-        if last_frame is not None:
-            for result in results:
-                if result.boxes:
-                    for box in result.boxes:
-                        x1, y1, x2, y2 = map(int, box.xyxy[0])
-                        cx = (x1 + x2) / 2
-                        cy = (y1 + y2) / 2
-
-                        # Apply inverse perspective transform to convert to screen coordinates
-                        point = np.float32([[[cx, cy]]])
-                        warped_point = cv2.perspectiveTransform(point, inv_transform_matrix)[0][0]
-                        screen_x, screen_y = warped_point
-                
-                        if (0 <= cx <= external_screen.width and 0 <= cy <= external_screen.height and 
-                            current_time - last_click_time >= CLICK_COOLDOWN):
-                            screen_x = int(cx + debug_offset_x + external_screen.x)
-                            screen_y = int(cy + debug_offset_y + external_screen.y)
-
-                            # Move the mouse and click
-                            pyautogui.moveTo(screen_x, screen_y)
-                            pyautogui.click(button='left')
-                            
-                            clicked = False
-                            for balloon in balloons[:]:
-                                if balloon.is_clicked((screen_x, screen_y)):
-                                    balloon.popped = True
-                                    if pop_sound:
-                                        pop_sound.play()
-                                    crack_x = int(screen_x - base_crack.get_width() / 2)
-                                    crack_y = int(screen_y - base_crack.get_height() / 2)
-                                    cracks.append(CrackEffect(crack_x, crack_y))
-                                    balloons.remove(balloon)
-                                    score += 1
-                                    score_popups.append(ScorePopup(screen_x, screen_y))
-                                    last_click_time = current_time
-                                    clicked = True
-                                    break
-                            if not clicked:
-                                misses.append(MissEffect(screen_x, screen_y))
-                                miss_sound.play()
-
         # Add new balloons if needed
         while len(balloons) < MAX_BALLOONS:
             balloons.append(Balloon())
@@ -550,29 +406,6 @@ while running:
     time_left = max(0, GAME_DURATION - int(elapsed_time))
     if elapsed_time >= GAME_DURATION and not game_over:
         game_over = True
-
-    if last_frame is not None:
-        # Debug view
-        debug_view = warped_frame.copy()
-        debug_view = cv2.resize(warped_frame, (SCREEN_WIDTH, SCREEN_HEIGHT))
-
-        # Draw ROI boundary
-        roi_points = np.float32([[0, 0], [external_screen.width-1, 0], [external_screen.width-1, external_screen.height-1], [0, external_screen.height-1]])
-        roi_points = roi_points.astype(np.int32).reshape((-1, 1, 2))
-        cv2.polylines(debug_view, [roi_points], True, (255, 0, 0), 2)
-        for result in results:
-            if result.boxes:
-                for box in result.boxes:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    cx = (x1 + x2) / 2
-                    cy = (y1 + y2) / 2 
-                    confidence = float(box.conf[0])
-                    cv2.rectangle(debug_view, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.circle(debug_view, (int(cx), int(cy)), 5, (0, 0, 255), -1)
-                    cv2.putText(debug_view, f"Green Ball: {confidence:.2f}", (x1, y1 - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-        
-        cv2.imshow("Camera Feed", debug_view)
     
     # Handle events
     for event in pygame.event.get():
@@ -581,15 +414,6 @@ while running:
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_q:
                 running = False
-            elif event.key == pygame.K_c:
-                print("Starting recalibration...")
-                calibration_points = get_calibration_points(cap)
-                if calibration_points and len(calibration_points) == 4:
-                    offset_x, offset_y = 0, 0
-                    debug_offset_x, debug_offset_y = 0, 0
-                    save_calibration_points(calibration_points, offset_x, offset_y, debug_offset_x, debug_offset_y)
-                    transform_matrix = get_perspective_transform(calibration_points, offset_x, offset_y)
-                    test_calibration_accuracy(transform_matrix, calibration_points)
             elif game_over:
                 if event.key == pygame.K_r:
                     score = 0
@@ -606,24 +430,21 @@ while running:
 
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:  # Left click
             current_time = time.time()
-            if current_time - last_click_time >= CLICK_COOLDOWN:
+            if current_time - last_click_time >= 0.5:
                 mx, my = event.pos
                 point = np.float32([[[mx, my]]])
-                warped_point = cv2.perspectiveTransform(point, inv_transform_matrix)[0][0]
-                cx, cy = warped_point
-                if 0 <= cx <= external_screen.width and 0 <= cy <= external_screen.height:
-                    clicked = False
-                    for balloon in balloons[:]:
-                        if balloon.is_clicked((mx, my)):
-                            balloon.popped = True
-                            if pop_sound:
-                                pop_sound.play()
-                            cracks.append(CrackEffect(mx, my))
-                            balloons.remove(balloon)
-                            score += 1
-                            score_popups.append(ScorePopup(mx, my))
-                            clicked = True
-                            break
+                clicked = False
+                for balloon in balloons[:]:
+                    if balloon.is_clicked((mx, my)):
+                        balloon.popped = True
+                        if pop_sound:
+                            pop_sound.play()
+                        cracks.append(CrackEffect(mx, my))
+                        balloons.remove(balloon)
+                        score += 1
+                        score_popups.append(ScorePopup(mx, my))
+                        clicked = True
+                        break
                     last_click_time = current_time
                 if not clicked:
                     misses.append(MissEffect(mx, my))
@@ -668,7 +489,7 @@ while running:
         score_popups = [s for s in score_popups if s.draw(screen)]
         misses = [m for m in misses if m.draw(screen)]
 
-        screen.blit(sand_img, (0, external_screen.height - sand_img.get_height()))
+        screen.blit(sand_img, (0, main_screen.height - sand_img.get_height()))
 
         timer_text = FONT.render(f"Time Left: {time_left}s", True, (0,0,0))
         score_text = FONT.render(f"Score: {score}", True, (0,0,0))
@@ -693,10 +514,10 @@ while running:
             balloon.update()  # Use normal update, not slow-motion
             balloon.draw(screen)
 
-        screen.blit(sand_img, (0, external_screen.height - sand_img.get_height()))
+        screen.blit(sand_img, (0, main_screen.height - sand_img.get_height()))
 
         # Apply semi-transparent overlay (same as start screen)
-        overlay = pygame.Surface((external_screen.width, external_screen.height), pygame.SRCALPHA)
+        overlay = pygame.Surface((main_screen.width, main_screen.height), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 180))  # Match start screen's overlay
         screen.blit(overlay, (0, 0))
 
@@ -721,14 +542,14 @@ while running:
         ]
         line_spacing = 50  # Consistent spacing between lines
         total_height = sum(font.size(text)[1] for text, font, _ in text_lines) + line_spacing * (len(text_lines) - 1)
-        start_y = external_screen.height // 2 - total_height // 2 + eased_y - game_over_target_y  # Center the block around eased_y
+        start_y = main_screen.height // 2 - total_height // 2 + eased_y - game_over_target_y  # Center the block around eased_y
 
         # Optional: Draw semi-transparent background box
         max_width = max(font.size(text)[0] for text, font, _ in text_lines)
         box_padding = 20
         box_rect = pygame.Rect(
-            external_screen.width // 2 - max_width // 2 - box_padding,
-            external_screen.height // 2 - total_height // 2 - box_padding,
+            main_screen.width // 2 - max_width // 2 - box_padding,
+            main_screen.height // 2 - total_height // 2 - box_padding,
             max_width + 2 * box_padding,
             total_height + 2 * box_padding
         )
@@ -738,21 +559,18 @@ while running:
         current_y = start_y
         for text, font, color in text_lines:
             draw_glow_text(screen, text, font,
-                        external_screen.width // 2 - font.size(text)[0] // 2,
+                        main_screen.width // 2 - font.size(text)[0] // 2,
                         current_y - 80, color)
             current_y += font.size(text)[1] + line_spacing
     
-    screen.blit(logo_img, (external_screen.width - 160, 40))  # Top-right corner
+    screen.blit(logo_img, (main_screen.width - 160, 40))  # Top-right corner
     pygame.display.flip()
     
-    # Check for exit
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        running = False
+    keys = pygame.key.get_pressed()
+    if keys[pygame.K_ESCAPE] or keys[pygame.K_q]:
+        pygame.quit()
+        exit()
 
 # Cleanup
-cap.release()
-cv2.destroyAllWindows()
-camera_thread.stop()
-camera_thread.join()
 pygame.quit()
 sys.exit()
