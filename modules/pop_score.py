@@ -11,11 +11,15 @@ class ScorePopup:
         self.duration = duration
         self.font = pygame.font.SysFont("Impact", 60)
 
-    def draw(self, surface):
+    def update(self):
+        """Update popup state and return True if still active"""
         elapsed = time.time() - self.start_time
-        if elapsed >= self.duration:
-            return False
+        return elapsed < self.duration
 
+    def draw(self, surface):
+        """Draw the score popup with animation"""
+        elapsed = time.time() - self.start_time
+        
         # Float upward and fade out
         offset_y = int(50 * (elapsed / self.duration))  # How far up it floats
         alpha = max(0, 255 - int((elapsed / self.duration) * 255))
@@ -33,5 +37,3 @@ class ScorePopup:
         draw_y = self.y - offset_y
         surface.blit(shadow_surface, (draw_x + 2, draw_y + 2))  # Shadow below/right
         surface.blit(text_surface, (draw_x, draw_y))            # Main text
-
-        return True
