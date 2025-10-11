@@ -88,7 +88,7 @@ class ThreadedBalloonGame:
         # Setup external monitor (projector)
         monitors = get_monitors()
         if len(monitors) < 2:
-            print("❌ Error: External monitor (projector) not detected")
+            print("Error: External monitor (projector) not detected")
             sys.exit(1)
         
         self.external_screen = monitors[1]
@@ -101,7 +101,7 @@ class ThreadedBalloonGame:
         self.clock = pygame.time.Clock()
         
         self.actual_width, self.actual_height = self.screen.get_size()
-        print(f"🖥️  Display: {self.actual_width}x{self.actual_height}")
+        print(f"Display: {self.actual_width}x{self.actual_height}")
     
     def _load_assets(self):
         """Load game assets (images, sounds, etc.)"""
@@ -115,10 +115,10 @@ class ThreadedBalloonGame:
                     img = pygame.transform.scale(img, (420, 480))
                     self.balloon_images.append(img)
                 except pygame.error as e:
-                    print(f"⚠️  Warning: Failed to load {path}: {e}")
+                    print(f"Warning: Failed to load {path}: {e}")
         
         if not self.balloon_images:
-            print("❌ Error: No valid balloon images loaded")
+            print("Error: No valid balloon images loaded")
             sys.exit(1)
         
         # Load effect images
@@ -132,7 +132,7 @@ class ThreadedBalloonGame:
             self.miss_frames = generate_boom_frames(miss_image, num_frames=6)
             
         except Exception as e:
-            print(f"❌ Error loading effect images: {e}")
+            print(f"Error loading effect images: {e}")
             sys.exit(1)
         
         # Load background and UI elements
@@ -161,7 +161,7 @@ class ThreadedBalloonGame:
             )
             
         except Exception as e:
-            print(f"❌ Error loading background assets: {e}")
+            print(f"Error loading background assets: {e}")
             sys.exit(1)
     
     def _init_calibration(self):
@@ -170,17 +170,17 @@ class ThreadedBalloonGame:
         calibration_points, offset_x, offset_y, debug_offset_x, debug_offset_y = load_calibration_points()
         
         if calibration_points and len(calibration_points) == 4:
-            print(f"📐 Loading existing calibration...")
+            print(f"Loading existing calibration...")
             self.transform_matrix = get_perspective_transform(calibration_points, 0, 0)
             self.inv_transform_matrix = np.linalg.inv(self.transform_matrix)  # For manual clicks
             self.offset_x, self.offset_y = offset_x, offset_y
             self.debug_offset_x, self.debug_offset_y = debug_offset_x, debug_offset_y
         else:
-            print("📐 Performing camera calibration...")
+            print("Performing camera calibration...")
             # Temporary camera for calibration
             temp_cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
             if not temp_cap.isOpened():
-                print("❌ Error: Could not open camera for calibration")
+                print("Error: Could not open camera for calibration")
                 sys.exit(1)
                 
             calibration_points = get_calibration_points(temp_cap)
@@ -194,7 +194,7 @@ class ThreadedBalloonGame:
                 self.transform_matrix = get_perspective_transform(calibration_points, 0, 0)
                 self.inv_transform_matrix = np.linalg.inv(self.transform_matrix)  # For manual clicks
             else:
-                print("❌ Error: Calibration failed")
+                print("Error: Calibration failed")
                 sys.exit(1)
     
     def _init_game_objects(self):
@@ -240,7 +240,7 @@ class ThreadedBalloonGame:
             # Start camera thread
             self.camera_thread = CameraCaptureThread(CAMERA_INDEX, self.game_state)
             self.camera_thread.start()
-            print("✅ Camera thread started")
+            print("Camera thread started")
             
             # Start YOLO inference thread
             self.yolo_thread = YOLOInferenceThread(
@@ -248,23 +248,23 @@ class ThreadedBalloonGame:
                 self.transform_matrix, self.debug_offset_x, self.debug_offset_y
             )
             self.yolo_thread.start()
-            print("✅ YOLO inference thread started")
+            print("YOLO inference thread started")
             
             # Start audio manager thread
             self.audio_thread = AudioManager(self.game_state, BASE_DIR)
             self.audio_thread.start()
-            print("✅ Audio manager thread started")
+            print("Audio manager thread started")
             
             return True
             
         except Exception as e:
-            print(f"❌ Error starting threads: {e}")
+            print(f"Error starting threads: {e}")
             self.stop_threads()
             return False
     
     def stop_threads(self):
         """Stop all worker threads"""
-        print("🛑 Stopping threads...")
+        print("Stopping threads...")
         
         # Signal shutdown
         self.game_state.shutdown()
@@ -283,7 +283,7 @@ class ThreadedBalloonGame:
             if thread and thread.is_alive():
                 thread.join(timeout=2.0)
         
-        print("✅ All threads stopped")
+        print("All threads stopped")
     
     def handle_detections(self):
         """Process detections from YOLO thread"""
@@ -374,17 +374,17 @@ class ThreadedBalloonGame:
                             # Process click directly (consistent with detection handling)
                             self._process_click(mx, my, 'manual')
                             self.game_state.last_click_time = current_time
-                            print(f"🎯 Manual click processed: ({mx}, {my}) -> warped ({cx:.1f}, {cy:.1f})")
+                            print(f"Manual click processed: ({mx}, {my}) -> warped ({cx:.1f}, {cy:.1f})")
                         else:
-                            print(f"🚫 Click outside game area: ({mx}, {my}) -> warped ({cx:.1f}, {cy:.1f})")
+                            print(f"Click outside game area: ({mx}, {my}) -> warped ({cx:.1f}, {cy:.1f})")
                     else:
-                        print(f"⏱️ Click ignored due to cooldown ({current_time - self.game_state.last_click_time:.2f}s < {CLICK_COOLDOWN}s)")
-        
+                        print(f"Click ignored due to cooldown ({current_time - self.game_state.last_click_time:.2f}s < {CLICK_COOLDOWN}s)")
+
         return True
     
     def _recalibrate(self):
         """Perform camera recalibration"""
-        print("🔄 Starting recalibration...")
+        print("Starting recalibration...")
         # Temporarily stop threads that use camera
         if self.camera_thread:
             self.camera_thread.stop()
@@ -399,13 +399,13 @@ class ThreadedBalloonGame:
             save_calibration_points(calibration_points, 0, 0, 0, 0)
             self.transform_matrix = get_perspective_transform(calibration_points, 0, 0)
             self.inv_transform_matrix = np.linalg.inv(self.transform_matrix)  # Update inverse matrix
-            print("✅ Recalibration completed")
+            print("Recalibration completed")
             
             # Restart camera thread
             self.camera_thread = CameraCaptureThread(CAMERA_INDEX, self.game_state)
             self.camera_thread.start()
         else:
-            print("❌ Recalibration failed")
+            print("Recalibration failed")
     
     def _restart_game(self):
         """Restart the game"""
@@ -708,9 +708,9 @@ class ThreadedBalloonGame:
                 self.clock.tick(FPS)
                 
         except KeyboardInterrupt:
-            print("\n🛑 Game interrupted by user")
+            print("\nGame interrupted by user")
         except Exception as e:
-            print(f"❌ Error in main game loop: {e}")
+            print(f"Error in main game loop: {e}")
         finally:
             self.stop_threads()
             pygame.quit()
@@ -827,6 +827,6 @@ class MissEffect(CrackEffect):
 
 # Main execution
 if __name__ == "__main__":
-    print("🚀 Starting Threaded Interactive Projector Camera Game...")
+    print("Starting Threaded Interactive Projector Camera Game...")
     game = ThreadedBalloonGame()
     game.run()
