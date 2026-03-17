@@ -7,8 +7,6 @@
 
 An interactive balloon-popping game that combines computer vision, object detection, and projection mapping to create an immersive augmented reality gaming experience. Players interact with projected balloons using physical gestures detected by a camera system.
 
-![Game Demo](assets/demo.gif)
-
 ## Overview
 
 This application creates an interactive gaming environment where:
@@ -27,6 +25,10 @@ This application creates an interactive gaming environment where:
 - **Rich Graphics**: Animated balloons, clouds, day/night cycles
 - **Spatial Audio**: Sound effects with positional feedback
 - **Auto-Calibration**: Camera-to-projector coordinate mapping
+
+### Project Demonstration
+
+![Game Demo](BalloonPopDemo.gif)
 
 ## Architecture
 
