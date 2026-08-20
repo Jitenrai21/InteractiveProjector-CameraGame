@@ -157,7 +157,7 @@ calibration_points, offset_x, offset_y, debug_offset_x, debug_offset_y = load_ca
 transform_matrix = None
 if calibration_points and len(calibration_points) == 4:
     print(f"Loading existing calibration with homography offset ({offset_x}, {offset_y}) and debug offset ({debug_offset_x}, {debug_offset_y})...")
-    transform_matrix = get_perspective_transform(calibration_points, 0, 0)
+    transform_matrix = get_perspective_transform(calibration_points, external_screen.width, external_screen.height, 0, 0)
 else:
     print("Performing camera calibration...")
     calibration_points = get_calibration_points(cap)
@@ -165,7 +165,7 @@ else:
     debug_offset_x, debug_offset_y = 0, 0  
     if calibration_points and len(calibration_points) == 4:
         save_calibration_points(calibration_points, offset_x, offset_y, debug_offset_x, debug_offset_y)
-        transform_matrix = get_perspective_transform(calibration_points, 0, 0)
+        transform_matrix = get_perspective_transform(calibration_points, external_screen.width, external_screen.height, 0, 0)
     else:
         print("Error: Calibration failed")
         cap.release()
@@ -508,7 +508,7 @@ while running:
                     offset_x, offset_y = 0, 0
                     debug_offset_x, debug_offset_y = 0, 0
                     save_calibration_points(calibration_points, offset_x, offset_y, debug_offset_x, debug_offset_y)
-                    transform_matrix = get_perspective_transform(calibration_points, offset_x, offset_y)
+                    transform_matrix = get_perspective_transform(calibration_points, external_screen.width, external_screen.height, offset_x, offset_y)
                     test_calibration_accuracy(transform_matrix, calibration_points)
             elif game_over:
                 if event.key == pygame.K_r:

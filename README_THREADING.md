@@ -20,8 +20,8 @@ The application now uses 4 main threads:
 All threads communicate through a centralized `ThreadSafeGameState` manager that provides:
 - Thread-safe data structures with proper locking
 - Frame sharing between camera and inference threads
-- Detection result queues from inference to main thread  
-- Click event queues for user interactions
+- Detection result queues from inference to main thread
+- Click cooldown management for click throttling
 - Performance monitoring and FPS tracking
 
 ## Key Components
@@ -111,12 +111,11 @@ Key settings in the threaded implementation:
 ```python
 # Frame rates
 CAMERA_FPS = 30          # Camera capture rate
-GAME_FPS = 90            # Main game loop rate  
+FPS = 90                 # Main game loop rate
 YOLO_FPS = ~15-20        # YOLO inference rate (auto-throttled)
 
 # Queue sizes
 DETECTION_QUEUE = 5      # Recent detections buffer
-CLICK_QUEUE = 10         # Click events buffer
 AUDIO_QUEUE = 20         # Audio effects buffer
 
 # Thread priorities
@@ -130,7 +129,7 @@ MAIN_THREAD = High       # UI responsiveness
 
 ### Synchronization Mechanisms
 - **ReentrantLock (RLock)** for game state properties
-- **Individual locks** for detection and click queues
+- **Lock** for the detection queue
 - **Atomic operations** where possible
 - **Queue.Queue** for thread-safe communication
 - **Threading.Event** for coordination signals
@@ -177,14 +176,23 @@ The debug overlay (press `D`) shows:
 ## File Structure
 ```
 modules/
-├── threaded_game_state.py      # Central thread coordination
-├── camera_capture_thread.py    # Enhanced camera capture  
-├── yolo_inference_thread.py    # YOLO processing thread
+├── config.py                   # Central configuration
+├── threaded_game_state.py      # Thread-safe coordination hub
+├── camera_capture_thread.py    # Camera capture thread
+├── yolo_inference_thread.py    # YOLO inference thread
 ├── audio_manager_thread.py     # Audio effects thread
-└── (existing modules...)       # Existing game components
+├── calibration.py              # Camera-to-projector calibration
+├── balloon.py                  # Balloon entity and physics
+├── effects.py                  # Pop/miss visual effects
+├── boom_animation.py           # Boom frame animation
+├── cloud.py                    # Animated background clouds
+├── pop_score.py                # Floating score popups
+└── background.py               # UI text helpers
 
 main_threaded.py                # New threaded main application
 main_using_model(onClick)_myVersion.py  # Original single-threaded version
+test_threading.py               # Thread-safety tests + performance benchmarks
+legacy/                         # Quarantined prototype/experimental modules
 requirements.txt                # Updated dependencies
 README_THREADING.md            # This documentation
 ```

@@ -2,14 +2,8 @@
 import cv2
 import numpy as np
 import time, json
-from screeninfo import get_monitors
 
-# Constants
-CALIBRATION_FILE = "calibration.json"
-monitors = get_monitors()
-external_screen = monitors[1]
-SCREEN_WIDTH = 1360
-SCREEN_HEIGHT = 768
+from .config import SCREEN_WIDTH, SCREEN_HEIGHT, CALIBRATION_FILE
 
 def order_points(pts):
     pts = np.array(pts, dtype=np.float32)
@@ -169,12 +163,12 @@ def load_calibration_points(filename=CALIBRATION_FILE):
         print(f"Error loading calibration points: {e}")
         return None, 0, 0, 0, 0
 
-def get_perspective_transform(src_points, offset_x=0, offset_y=0):
+def get_perspective_transform(src_points, screen_width, screen_height, offset_x=0, offset_y=0):
     dst_points = np.float32([
         [0 + offset_x, 0 + offset_y],
-        [external_screen.width-1 + offset_x, 0 + offset_y],
-        [external_screen.width-1 + offset_x, external_screen.height-1 + offset_y],
-        [0 + offset_x, external_screen.height-1 + offset_y]
+        [screen_width - 1 + offset_x, 0 + offset_y],
+        [screen_width - 1 + offset_x, screen_height - 1 + offset_y],
+        [0 + offset_x, screen_height - 1 + offset_y]
     ])
     src_points = np.float32(src_points)
     matrix = cv2.getPerspectiveTransform(src_points, dst_points)

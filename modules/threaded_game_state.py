@@ -5,7 +5,7 @@ Handles shared data between multiple threads with proper synchronization.
 import threading
 import time
 from dataclasses import dataclass
-from typing import List, Tuple, Optional
+from typing import List, Optional
 from queue import Queue, Empty
 
 
@@ -16,15 +16,6 @@ class DetectionResult:
     y: float
     confidence: float
     timestamp: float
-
-
-@dataclass
-class ClickEvent:
-    """Container for click events from detection or manual input"""
-    x: int
-    y: int
-    timestamp: float
-    source: str  # 'detection' or 'manual'
 
 
 class ThreadSafeGameState:
@@ -40,19 +31,17 @@ class ThreadSafeGameState:
         # Thread synchronization
         self._lock = threading.RLock()  # Reentrant lock for nested calls
         self._detection_lock = threading.Lock()
-        self._click_lock = threading.Lock()
-        
+
         # Frame data
         self.current_frame = None
         self.frame_timestamp = 0
         self.frame_ready = threading.Event()
-        
+
         # Detection results
         self._detection_queue = Queue(maxsize=5)  # Buffer recent detections
         self.latest_detection: Optional[DetectionResult] = None
-        
-        # Click events
-        self._click_queue = Queue(maxsize=10)
+
+        # Click cooldown state
         self.last_click_time = 0
         self.click_cooldown = 0.5
         
@@ -124,34 +113,7 @@ class ThreadSafeGameState:
             if self.latest_detection:
                 return (time.time() - self.latest_detection.timestamp) < max_age
         return False
-    
-    # Click event management
-    def add_click_event(self, x: int, y: int, source: str = "manual"):
-        """Add click event with cooldown check"""
-        current_time = time.time()
-        
-        with self._click_lock:
-            if current_time - self.last_click_time >= self.click_cooldown:
-                click = ClickEvent(x, y, current_time, source)
-                try:
-                    self._click_queue.put_nowait(click)
-                    self.last_click_time = current_time
-                    return True
-                except:
-                    pass  # Queue full
-        return False
-    
-    def get_pending_clicks(self) -> List[ClickEvent]:
-        """Get all pending click events"""
-        clicks = []
-        with self._click_lock:
-            while not self._click_queue.empty():
-                try:
-                    clicks.append(self._click_queue.get_nowait())
-                except Empty:
-                    break
-        return clicks
-    
+
     # Game state properties
     @property
     def score(self):
@@ -219,14 +181,8 @@ class ThreadSafeGameState:
             self._start_screen_active = True
             self._start_time = 0
             self.last_click_time = 0
-            
-            # Clear queues
-            while not self._click_queue.empty():
-                try:
-                    self._click_queue.get_nowait()
-                except Empty:
-                    break
-            
+
+            # Clear detection queue
             while not self._detection_queue.empty():
                 try:
                     self._detection_queue.get_nowait()
@@ -252,6 +208,5 @@ class ThreadSafeGameState:
                 'inference_fps': self.fps_inference,
                 'game_fps': self.fps_game,
                 'detection_queue_size': self._detection_queue.qsize(),
-                'click_queue_size': self._click_queue.qsize(),
                 'frame_ready': self.frame_ready.is_set()
             }

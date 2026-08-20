@@ -75,7 +75,7 @@ The application uses a **4-thread architecture** for optimal performance:
 
 3. **Download YOLO model** (if not included)
    ```bash
-   # The best.onnx model should be in the root directory
+   # The best.onnx model should be in the models/ directory
    # If missing, train your own or use a pre-trained model
    ```
 
@@ -139,26 +139,29 @@ torch>=2.0.0           # PyTorch for YOLO inference
 
 ```
 InteractiveProjector-CameraGame/
-├── assets/                      # Game assets
-│   ├── balloons/               # Balloon sprites
-│   ├── sounds/                 # Audio effects
-│   ├── effects/                # Visual effects
-│   └── backgrounds/            # Background images
-├── modules/                     # Core game modules
-│   ├── threaded_game_state.py  # Thread coordination
-│   ├── camera_capture_thread.py # Camera handling
-│   ├── yolo_inference_thread.py # Object detection
-│   ├── audio_manager_thread.py  # Audio processing
-│   ├── calibration.py          # Camera calibration
-│   ├── game_visual.py          # Game graphics
-│   └── config.py               # Configuration
-├── tests/                       # Testing utilities
-├── datapreprocessing/           # Training data tools
-├── main_threaded.py            # Main threaded application
-├── main_using_model*.py        # Alternative versions
-├── requirements.txt            # Python dependencies
-├── README.md                   # This file
-└── README_THREADING.md         # Threading documentation
+├── assets/                       # Game assets (balloons, sounds, effects, backgrounds)
+├── models/                       # YOLO ONNX models (best.onnx)
+├── modules/                      # Core game modules
+│   ├── config.py                 # Central configuration
+│   ├── threaded_game_state.py    # Thread-safe coordination hub
+│   ├── camera_capture_thread.py  # Camera handling thread
+│   ├── yolo_inference_thread.py  # Object detection thread
+│   ├── audio_manager_thread.py   # Audio processing thread
+│   ├── calibration.py            # Camera-to-projector calibration
+│   ├── balloon.py                # Balloon entity and physics
+│   ├── effects.py                # Pop/miss visual effects
+│   ├── boom_animation.py         # Boom frame animation
+│   ├── cloud.py                  # Animated background clouds
+│   ├── pop_score.py              # Floating score popups
+│   └── background.py             # UI text helpers
+├── legacy/                       # Quarantined prototype/experimental modules
+├── datapreprocessing/            # Training data extraction tools
+├── main_threaded.py              # Main threaded application
+├── main_using_model(onClick)_myVersion.py  # Original single-threaded version
+├── test_threading.py             # Thread-safety tests + performance benchmarks
+├── requirements.txt              # Python dependencies
+├── README.md                     # This file
+└── README_THREADING.md           # Threading documentation
 ```
 
 ### Performance Specifications
@@ -174,10 +177,6 @@ InteractiveProjector-CameraGame/
 | **Display** | 1080p Monitor + Projector | 4K Monitor + High-res Projector |
 
 #### Performance Metrics
-
-![Performance Metrics](Performance_Metrics.png)
-
-*Figure 2: Performance comparison showing significant improvements in FPS, latency, and resource utilization with multi-threaded architecture.*
 
 | Metric | Single-Threaded | Multi-Threaded | Improvement |
 |--------|-----------------|----------------|-------------|
@@ -204,20 +203,21 @@ CAMERA_FPS = 30          # Capture framerate
 ```python
 # Core game parameters
 GAME_DURATION = 120       # Game length in seconds
-MAX_BALLOONS = 3         # Simultaneous balloons
-CONF_THRESHOLD = 0.5     # YOLO confidence threshold
-IOU_THRESHOLD = 0.7      # YOLO IoU threshold
-CLICK_COOLDOWN = 0.5     # Seconds between clicks
+FPS = 90                  # Main game loop FPS
+CONF_THRESHOLD = 0.5      # YOLO confidence threshold
+IOU_THRESHOLD = 0.7       # YOLO IoU threshold
+CLICK_COOLDOWN = 0.5      # Seconds between clicks
 ```
 
 ### Threading Configuration
 
 ```python
-# Thread performance settings
-GAME_FPS = 90            # Main game loop FPS
+# Thread performance settings (in modules/config.py)
+FPS = 90                 # Main game loop FPS
 CAMERA_FPS = 30          # Camera capture FPS
-YOLO_FPS = 15-20         # YOLO inference FPS (auto-throttled)
-AUDIO_BUFFER_SIZE = 20   # Audio effect queue size
+
+# YOLO inference runs on its own thread (auto-throttled)
+# Audio effects are queued for non-blocking playback
 ```
 
 ## Troubleshooting
@@ -307,7 +307,7 @@ We welcome contributions! Here's how to get started:
 4. **Make your changes**
 5. **Run tests**
    ```bash
-   python -m pytest tests/
+   python test_threading.py
    ```
 6. **Submit a pull request**
 

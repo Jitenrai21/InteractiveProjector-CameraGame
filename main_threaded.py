@@ -13,20 +13,26 @@ import pyautogui
 import cv2
 import numpy as np
 import sys
-import math
 import os
-import random
 import time
 import logging
 import threading
 from screeninfo import get_monitors
 
 # Local imports
+from modules import config
 from modules.background import draw_text_with_bg
-from modules.calibration import *
+from modules.calibration import (
+    get_calibration_points,
+    get_perspective_transform,
+    load_calibration_points,
+    save_calibration_points,
+)
 from modules.boom_animation import generate_boom_frames
 from modules.cloud import Cloud
 from modules.pop_score import ScorePopup
+from modules.balloon import Balloon
+from modules.effects import CrackEffect, MissEffect
 
 # Threading modules
 from modules.threaded_game_state import ThreadSafeGameState
@@ -39,23 +45,23 @@ os.environ["YOLO_VERBOSE"] = "False"
 logging.getLogger('ultralytics').setLevel(logging.CRITICAL)
 cv2.setLogLevel(0)
 
-# Constants
-SCREEN_WIDTH = 1360
-SCREEN_HEIGHT = 768
-FPS = 90
-CONF_THRESHOLD = 0.5
-IOU_THRESHOLD = 0.7
-CLICK_COOLDOWN = 0.5
-CAMERA_INDEX = 1
-BALLOON_FILES = ["balloon1.png", "balloon2.png", "balloon3.png"]
-GAME_DURATION = 120
-
-# Get paths
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__)))
-MODEL_PATH = os.path.join(BASE_DIR, "models", "best.onnx")
-CRACK_PATH = os.path.join(BASE_DIR, "assets", "boom1.png")
-BACKGROUND_IMAGE_PATH = os.path.join(BASE_DIR, "assets", "background.jpg")
-CALIBRATION_FILE = "calibration.json"
+# Constants (config-driven)
+SCREEN_WIDTH = config.SCREEN_WIDTH
+SCREEN_HEIGHT = config.SCREEN_HEIGHT
+FPS = config.FPS
+CONF_THRESHOLD = config.CONF_THRESHOLD
+IOU_THRESHOLD = config.IOU_THRESHOLD
+CLICK_COOLDOWN = config.CLICK_COOLDOWN
+CAMERA_INDEX = config.CAMERA_INDEX
+BALLOON_FILES = config.BALLOON_FILES
+GAME_DURATION = config.GAME_DURATION
+MODEL_PATH = config.MODEL_PATH
+CRACK_PATH = config.CRACK_PATH
+MISS_PATH = config.MISS_PATH
+BACKGROUND_IMAGE_PATH = config.BACKGROUND_IMAGE_PATH
+CALIBRATION_FILE = config.CALIBRATION_FILE
+ASSETS_DIR = config.ASSETS_DIR
+BASE_DIR = config.BASE_DIR
 
 
 class ThreadedBalloonGame:
@@ -108,7 +114,7 @@ class ThreadedBalloonGame:
         # Load balloon images
         self.balloon_images = []
         for file in BALLOON_FILES:
-            path = os.path.join(BASE_DIR, "assets", file)
+            path = os.path.join(ASSETS_DIR, file)
             if os.path.exists(path):
                 try:
                     img = pygame.image.load(path).convert_alpha()
@@ -127,7 +133,7 @@ class ThreadedBalloonGame:
             base_crack = pygame.transform.scale(base_crack, (200, 120))
             self.boom_frames = generate_boom_frames(base_crack, num_frames=6)
             
-            miss_image = pygame.image.load(os.path.join(BASE_DIR, "assets", "miss.png")).convert_alpha()
+            miss_image = pygame.image.load(MISS_PATH).convert_alpha()
             miss_image = pygame.transform.scale(miss_image, (150, 100))
             self.miss_frames = generate_boom_frames(miss_image, num_frames=6)
             
@@ -144,8 +150,8 @@ class ThreadedBalloonGame:
             )
             
             # Load cloud images
-            cloud_image1 = pygame.image.load(os.path.join(BASE_DIR, "assets", "cloud1.png")).convert_alpha()
-            cloud_image2 = pygame.image.load(os.path.join(BASE_DIR, "assets", "cloud2.png")).convert_alpha()
+            cloud_image1 = pygame.image.load(os.path.join(ASSETS_DIR, "cloud1.png")).convert_alpha()
+            cloud_image2 = pygame.image.load(os.path.join(ASSETS_DIR, "cloud2.png")).convert_alpha()
             cloud_images = [cloud_image1, cloud_image2]
             
             self.clouds = [
@@ -154,7 +160,7 @@ class ThreadedBalloonGame:
             ]
             
             # Load sparkle effect
-            self.sparkle_img = pygame.image.load(os.path.join(BASE_DIR, "assets", "sparkle.png")).convert_alpha()
+            self.sparkle_img = pygame.image.load(os.path.join(ASSETS_DIR, "sparkle.png")).convert_alpha()
             self.sparkle_img = pygame.transform.scale(
                 self.sparkle_img, 
                 (self.external_screen.width, self.external_screen.height)
@@ -171,7 +177,9 @@ class ThreadedBalloonGame:
         
         if calibration_points and len(calibration_points) == 4:
             print(f"Loading existing calibration...")
-            self.transform_matrix = get_perspective_transform(calibration_points, 0, 0)
+            self.transform_matrix = get_perspective_transform(
+                calibration_points, self.external_screen.width, self.external_screen.height, 0, 0
+            )
             self.inv_transform_matrix = np.linalg.inv(self.transform_matrix)  # For manual clicks
             self.offset_x, self.offset_y = offset_x, offset_y
             self.debug_offset_x, self.debug_offset_y = debug_offset_x, debug_offset_y
@@ -191,7 +199,9 @@ class ThreadedBalloonGame:
                 self.debug_offset_x, self.debug_offset_y = 0, 0
                 save_calibration_points(calibration_points, self.offset_x, self.offset_y, 
                                       self.debug_offset_x, self.debug_offset_y)
-                self.transform_matrix = get_perspective_transform(calibration_points, 0, 0)
+                self.transform_matrix = get_perspective_transform(
+                    calibration_points, self.external_screen.width, self.external_screen.height, 0, 0
+                )
                 self.inv_transform_matrix = np.linalg.inv(self.transform_matrix)  # For manual clicks
             else:
                 print("Error: Calibration failed")
@@ -397,7 +407,9 @@ class ThreadedBalloonGame:
         
         if calibration_points and len(calibration_points) == 4:
             save_calibration_points(calibration_points, 0, 0, 0, 0)
-            self.transform_matrix = get_perspective_transform(calibration_points, 0, 0)
+            self.transform_matrix = get_perspective_transform(
+                calibration_points, self.external_screen.width, self.external_screen.height, 0, 0
+            )
             self.inv_transform_matrix = np.linalg.inv(self.transform_matrix)  # Update inverse matrix
             print("Recalibration completed")
             
@@ -578,7 +590,6 @@ class ThreadedBalloonGame:
             f"Inference FPS: {stats['inference_fps']:.1f}",
             f"Game FPS: {stats['game_fps']:.1f}",
             f"Detection Queue: {stats['detection_queue_size']}",
-            f"Click Queue: {stats['click_queue_size']}",
             f"Frame Ready: {stats['frame_ready']}"
         ]
         
@@ -620,7 +631,6 @@ class ThreadedBalloonGame:
             fps = self.fps_counter / (current_time - self.fps_start_time)
             self.game_state.update_fps(game_fps=fps)
             self.fps_counter = 0
-            self.fps_start_time = current_time
             self.fps_start_time = current_time
     
     def render_debug_window(self):
@@ -715,114 +725,6 @@ class ThreadedBalloonGame:
             self.stop_threads()
             pygame.quit()
             cv2.destroyAllWindows()
-
-
-# Additional classes for game objects
-class Balloon:
-    """Enhanced Balloon class for threaded game"""
-    
-    def __init__(self, images, screen_width, screen_height, zone_count, zone_width, occupied_zones):
-        self.images = images
-        self.screen_width = screen_width
-        self.screen_height = screen_height
-        self.zone_count = zone_count
-        self.zone_width = zone_width
-        self.occupied_zones = occupied_zones
-        
-        self.image = random.choice(self.images)
-        self.width = self.image.get_width()
-        self.height = self.image.get_height()
-        self.radius = min(self.width, self.height) // 2
-        self.popped = False
-        self.movement_type = random.choice(['zigzag', 'sway', 'spiral'])
-        self.wind_offset = 0
-        self.birth_time = time.time()
-        self.reset()
-    
-    def reset(self):
-        """Reset balloon position and properties"""
-        if len(self.occupied_zones) >= self.zone_count:
-            self.occupied_zones.clear()
-        
-        zone = random.choice([i for i in range(self.zone_count) if i not in self.occupied_zones])
-        max_x_offset = max(0, self.zone_width - self.width)
-        self.x = zone * self.zone_width + random.randint(0, max_x_offset)
-        self.occupied_zones.add(zone)
-        
-        self.y = self.screen_height - 10
-        self.speed = random.uniform(28.0, 30.0)
-        self.popped = False
-        self.movement_type = random.choice(['zigzag', 'spiral', 'sway'])
-        self.wind_amplitude = random.uniform(0.8, 2.0)
-    
-    def update(self, slow_factor=1.0):
-        """Update balloon position"""
-        if not self.popped:
-            self.y -= self.speed * slow_factor
-            
-            t = time.time() - self.birth_time
-            
-            if self.movement_type == 'zigzag':
-                self.x += math.sin(t * 5) * 8
-            elif self.movement_type == 'sway':
-                self.x += math.sin(self.y * 0.01) * 6
-            elif self.movement_type == 'spiral':
-                self.x += math.sin(t * 3) * (self.y * 0.008)
-            
-            if random.random() < 0.002:
-                self.wind_offset = random.uniform(-10, 10)
-            else:
-                self.wind_offset *= 0.9
-            
-            self.x += self.wind_offset
-            
-            if self.y + self.height < 0:
-                self.reset()
-    
-    def draw(self, screen):
-        """Draw balloon on screen"""
-        if not self.popped:
-            screen.blit(self.image, (self.x, self.y))
-    
-    def is_clicked(self, pos):
-        """Check if balloon was clicked"""
-        cx = self.x + self.width // 2
-        cy = self.y + self.height // 2
-        dx = pos[0] - cx
-        dy = pos[1] - cy
-        return dx * dx + dy * dy <= self.radius * self.radius
-
-
-class CrackEffect:
-    """Crack animation effect"""
-    
-    def __init__(self, x, y, frames, duration=1):
-        self.x = x
-        self.y = y
-        self.frames = frames
-        self.start_time = time.time()
-        self.duration = duration
-        self.frame_duration = duration / len(frames)
-    
-    def update(self):
-        """Update effect animation"""
-        return time.time() - self.start_time < self.duration
-    
-    def draw(self, screen):
-        """Draw effect frame"""
-        elapsed = time.time() - self.start_time
-        if elapsed < self.duration:
-            frame_index = int(elapsed / self.frame_duration)
-            if frame_index < len(self.frames):
-                frame = self.frames[frame_index]
-                fx = self.x - frame.get_width() // 2
-                fy = self.y - frame.get_height() // 2
-                screen.blit(frame, (fx, fy))
-
-
-class MissEffect(CrackEffect):
-    """Miss animation effect (inherits from CrackEffect)"""
-    pass
 
 
 # Main execution
